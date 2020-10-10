@@ -85,3 +85,166 @@ instacart %>%
   )
 ```
 
+## Problem 2
+
+```{r}
+accel_df = read_csv("./data/accel_data.csv") %>% 
+  janitor::clean_names() 
+```  
+
+```{r}
+accel_df_tidy =
+  accel_df %>% 
+  pivot_longer(
+    activity_1:activity_1440,
+    names_to = "minute",
+    names_prefix = "activity_",
+    values_to = "activity_counts"
+  ) %>% 
+  mutate(minute = as.numeric(minute)) %>% 
+  mutate(
+    weekday_vs_weekend = recode(day,"Monday" = "weekday", "Tuesday" = "weekday", "Wednesday" = "weekday","Thursday" = "weekday", "Friday" = "weekday", "Saturday" = "weekend", "Sunday" = "weekend")) %>% 
+    mutate(
+    week = as.character(week) %>%
+           forcats::fct_relevel(as.character(1:5)),
+    day = factor(day),
+    day = forcats::fct_relevel(day, c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"))
+  ) %>% 
+  group_by(week) %>% 
+  arrange(day) %>% 
+  relocate(week,  weekday_vs_weekend, day, minute, activity_counts)
+```
+
+The resulting `r ncol(accel_df_tidy)` x `r nrow(accel_df_tidy)` dataset contains six variables: `r names(accel_df_tidy)`, and `r nrow(accel_df_tidy)` observations. The variables activity.* from the raw dataset are combined into two new columns, minute and activity_counts. The row order is changed to follow a chronological order instead of the day_id order. The column order is also changed since I feel for me that it is easier to check the week and day first than to look for the day_id. 
+
+```{r}
+accel_df_tidy %>%
+    mutate(
+    day = factor(day),
+    day = forcats::fct_relevel(day, c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"))
+  ) %>% 
+  group_by(week, day) %>% 
+  summarize(total_activity = sum(activity_counts)) %>% 
+  pivot_wider(
+    names_from = week,
+    values_from = total_activity) %>% 
+  knitr::kable()
+```
+
+From the table, we see that activity counts are extremely low on the Saturdays of week 4 and week 5. The Monday of week 1 also has a relatively low activity counts.
+
+```{r}
+accel_df_tidy %>%
+  group_by(week, day) %>% 
+  mutate(count = 1,
+    hour = cumsum(count) %/% 60) %>% 
+  group_by(week, day, hour) %>% 
+  summarise(activity_hour = sum(activity_counts)) %>% 
+  ggplot(aes(x = hour, y = activity_hour, color = day)) +
+  geom_point() +
+  geom_line(alpha = 0.5)
+```
+
+From the graph we can see that the peaks of the activity counts are at around 7am and 8pm. During 10am to 6pm activity counts stayed stable at around 45000 per hour. Activities are relatively more frequent during Tuesdays mornings, Sunday mornings, and Monday, Friday, Saturday evenings.
+
+## Problem 3
+
+```{r}
+ny_noaa %>% 
+  mutate(tmax = as.numeric(tmax)) %>% 
+  mutate(tmin = as.numeric(tmax)) %>%
+  summary()
+```
+
+The ny_noaa dataset contains information of all New York state weather stations from January 1, 1981 through December 31, 2010. It has information of weather station ID, date, precipitation, snowfall, snow depth, maximum temperature, and minimum temperature. There are `r ncol(ny_noaa)` columns and `r nrow(ny_noaa)` rows in the dataset. From the dataset, we see that out of the total 2595176 recorded dates, 1134358 (43.71%) days do not have information of both the maximum temperatures and minimum temperatures, and 591786 (22.80%) days do not have information of snow depth. This missing data might be an issue since it takes a significant portion the dataset. 
+
+```{r}
+noaa_df = 
+  ny_noaa %>% 
+  separate(date, c("year","month","day"), "-") %>% 
+  mutate(tmax = as.numeric(tmax)/10) %>% 
+  mutate(tmin = as.numeric(tmax)/10) %>%
+  mutate(prcp  = prcp/10) 
+
+noaa_df %>% 
+  drop_na(snow) %>% 
+  count(snow) %>% 
+  arrange(desc(n))
+```
+
+After the data cleaning, the resulting `r ncol(noaa_df)` x `r nrow(noaa_df)` dataset contains 9 variables: `r names(noaa_df)`. Date was separated into year, month, and day. Units for maximum temperature and minimum temperature are converted to degrees C. Precipitation units are converted to mm.
+
+For the variable snowfall, 0mm is the most commonly observed value, indicating there is no snow for the most of the time.
+
+```{r fig.width=12}
+jan_p = 
+  noaa_df %>% 
+  filter(month == c("01")) %>% 
+  group_by(id, year, month) %>% 
+  summarize(
+    mean_tmax = mean(tmax, na.rm = TRUE)) %>% 
+  drop_na() %>%
+  ggplot(aes(x = year, y = mean_tmax, group = id)) +
+  geom_point(alpha = 0.3) +
+  geom_path(alpha = 0.3) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  labs(title = "Average Max Temperatures in January and July from 1981-2010",
+       y = "January")
+
+jul_p = 
+  noaa_df %>% 
+  filter(month == c("07")) %>% 
+  group_by(id, year, month) %>% 
+  summarize(
+    mean_tmax = mean(tmax, na.rm = TRUE)) %>% 
+  drop_na() %>%
+  ggplot(aes(x = year, y = mean_tmax, group = id)) +
+  geom_point(alpha = 0.3) +
+  geom_path(alpha = 0.3) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  labs(y = "July")
+
+jan_p /jul_p
+```
+
+The average max temperatures tend have a wave structure, as if the mean max temperature is relatively high in one year, then the temperature will drop in the following years and then back up again. January 1994 and January 2004 seem to have a relatively lower average max temperatures than other years. 
+
+Outliers present in January 1982, January 2005, January 1999, January 2004, July 1984, July 1988, July 2004, and July 2007.
+
+```{r}
+tmax_tmin_p =
+  noaa_df %>% 
+  na.omit() %>% 
+  ggplot(aes(x = tmin, y = tmax)) +
+  geom_smooth(se = FALSE)
+```
+
+
+```{r fig.width=12}
+tmax_tmin_p =
+  noaa_df %>% 
+  pivot_longer(
+      tmax:tmin,
+      names_to = "max_vs_min",
+      values_to = "temperature"
+    ) %>% 
+  drop_na() %>% 
+  ggplot(aes(x = as.factor(year), y = temperature, fill = max_vs_min)) +
+  geom_boxplot(outlier.size = 0.5) +
+  scale_x_discrete(breaks = seq(1981, 2010, 1), name = "Year") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  scale_fill_brewer(palette="BuPu")
+
+dist_snow_p = 
+  noaa_df %>% 
+  filter(snow > 0, snow < 100) %>% 
+  #group_by(year)
+  ggplot(aes(x = snow, fill = year, color = year)) +
+  geom_density(alpha = .1)
+
+(tmax_tmin_p / dist_snow_p) + plot_layout(guides = 'collect')
+```
+
+A boxplot is generated to compare the max temperatures and minumum temperatures for each year. From the plot, we don't see that many changes in the average max temperatures or the average min temperaturesthroughout the 30 years, however, the highest values for max temperature seem to be higher in recent years than those values in the past.
+
+A density plot is generated to show the distribution of snowfall values greater than 0 and less than 100 for each year. From the plot, we see that the recent years tend to have smaller amount of snowfall than in the 1980s. 
